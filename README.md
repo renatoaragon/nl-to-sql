@@ -62,16 +62,34 @@ ensure_read_only("DROP TABLE orders")             # UnsafeQueryError
 ensure_read_only("SELECT 1; DELETE FROM orders")  # UnsafeQueryError (stacked)
 ```
 
+Before scanning, the guard **normalizes** the query with a minimal lexer that
+blanks out string literals (including `''` escapes), quoted identifiers and
+comments. Scanning raw text gets both directions wrong:
+
+```python
+ensure_read_only("SELECT 'drop' AS word")                  # ok — literal, not a keyword
+ensure_read_only("SELECT ';' AS sep")                      # ok — not a stacked statement
+ensure_read_only("SELECT 1 /* x */; DROP TABLE orders")    # UnsafeQueryError
+ensure_read_only("SELECT * FROM read_csv('/etc/passwd')")  # UnsafeQueryError
+```
+
+The last case matters on DuckDB specifically: table functions like `read_csv`,
+`read_parquet` and `glob` are read-only in SQL terms but read **arbitrary
+filesystem paths** — out of bounds for a query endpoint, so the guard blocks
+them alongside the mutation keywords.
+
 ## Tests
 
 ```bash
 pytest -q
 ```
 
-The suite covers the guard (mutations, stacked statements, CTEs), prompt
-building and SQL extraction, and schema rendering — **none of it calls the API**,
-so CI runs green without an API key. The Claude call is isolated behind an
-injectable client.
+The suite covers the guard (mutations, stacked statements, CTEs, plus the
+adversarial set: keywords hidden in comments, literals with escaped quotes,
+filesystem table functions, unterminated strings), prompt building and SQL
+extraction, and schema rendering — **none of it calls the API**, so CI runs
+green without an API key. The Claude call is isolated behind an injectable
+client.
 
 ## Design notes
 
