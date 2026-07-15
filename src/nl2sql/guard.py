@@ -123,3 +123,24 @@ def ensure_read_only(sql: str) -> str:
             )
 
     return sql.strip().rstrip(";").strip()
+
+
+DEFAULT_MAX_ROWS = 1000
+
+_TRAILING_LIMIT = re.compile(r"\blimit\s+\d+\s*(offset\s+\d+\s*)?$")
+
+
+def enforce_limit(sql: str, max_rows: int = DEFAULT_MAX_ROWS) -> str:
+    """Cap the result size: append a LIMIT when the query has none on top.
+
+    Asked "show me the orders", the model happily generates an unbounded
+    ``SELECT *`` — correct SQL, and a memory bomb on a real table. A query that
+    already ends in its own top-level LIMIT is respected (the model expressed
+    an intent; a limit inside a subquery does not bound the outer query, so it
+    doesn't count). The check runs on the normalized text, the appended clause
+    on its own line so a trailing ``--`` comment can't swallow it.
+    """
+    normalized = _normalize(sql).strip().rstrip(";").strip().lower()
+    if _TRAILING_LIMIT.search(normalized):
+        return sql
+    return f"{sql}\nLIMIT {max_rows}"

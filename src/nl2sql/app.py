@@ -7,7 +7,7 @@ Requires ANTHROPIC_API_KEY in the environment for the LLM step.
 import argparse
 
 from nl2sql.db import build_sample_db
-from nl2sql.guard import ensure_read_only
+from nl2sql.guard import enforce_limit, ensure_read_only
 from nl2sql.llm import generate_sql
 from nl2sql.schema import render_schema
 
@@ -17,7 +17,7 @@ def answer(question: str) -> None:
     schema_text = render_schema(conn)
 
     raw_sql = generate_sql(question, schema_text)
-    safe_sql = ensure_read_only(raw_sql)
+    safe_sql = enforce_limit(ensure_read_only(raw_sql))
 
     print(f"\nSQL:\n{safe_sql}\n")
     rows = conn.execute(safe_sql).fetchall()

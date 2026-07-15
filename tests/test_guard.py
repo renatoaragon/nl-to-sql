@@ -1,6 +1,6 @@
 import pytest
 
-from nl2sql.guard import UnsafeQueryError, ensure_read_only
+from nl2sql.guard import UnsafeQueryError, enforce_limit, ensure_read_only
 
 
 def test_allows_plain_select():
@@ -115,3 +115,37 @@ def test_rejects_unterminated_string():
 def test_rejects_comment_only_query():
     with pytest.raises(UnsafeQueryError):
         ensure_read_only("-- nothing but a comment")
+
+
+# --- enforce_limit: unbounded queries get a cap, expressed intent is kept ---
+
+
+def test_appends_limit_to_unbounded_query():
+    assert enforce_limit("SELECT * FROM orders", 500) == "SELECT * FROM orders\nLIMIT 500"
+
+
+def test_respects_an_existing_top_level_limit():
+    sql = "SELECT * FROM orders LIMIT 10"
+    assert enforce_limit(sql, 500) == sql
+
+
+def test_respects_limit_with_offset():
+    sql = "SELECT * FROM orders LIMIT 10 OFFSET 20"
+    assert enforce_limit(sql, 500) == sql
+
+
+def test_limit_in_a_subquery_does_not_count():
+    # The inner LIMIT bounds the subquery, not the result set.
+    sql = "SELECT * FROM (SELECT * FROM orders LIMIT 5) t JOIN customers c ON t.customer_id = c.id"
+    assert enforce_limit(sql, 500).endswith("\nLIMIT 500")
+
+
+def test_limit_inside_a_string_literal_does_not_count():
+    sql = "SELECT 'no limit 5 here' AS note FROM orders"
+    assert enforce_limit(sql, 500).endswith("\nLIMIT 500")
+
+
+def test_appended_limit_survives_a_trailing_comment():
+    out = enforce_limit("SELECT 1 -- note", 500)
+    # The newline ends the line comment, so the LIMIT is real SQL.
+    assert out == "SELECT 1 -- note\nLIMIT 500"
