@@ -3,6 +3,18 @@
 import duckdb
 
 
+def list_tables(conn: duckdb.DuckDBPyConnection) -> set[str]:
+    """The tables the model is shown — and therefore the only ones it may use."""
+    rows = conn.execute(
+        """
+        select table_name
+        from information_schema.tables
+        where table_schema = 'main'
+        """
+    ).fetchall()
+    return {name for (name,) in rows}
+
+
 def render_schema(conn: duckdb.DuckDBPyConnection) -> str:
     """Return a compact `table(col type, ...)` description of every table."""
     tables = conn.execute(

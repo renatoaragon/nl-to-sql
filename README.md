@@ -78,6 +78,18 @@ The last case matters on DuckDB specifically: table functions like `read_csv`,
 filesystem paths** — out of bounds for a query endpoint, so the guard blocks
 them alongside the mutation keywords.
 
+The pipeline is three gates, narrowing in turn:
+
+```python
+enforce_limit(ensure_known_tables(ensure_read_only(sql), tables))
+```
+
+`ensure_known_tables` keeps the query inside the schema the model was actually
+shown. A query reaching for `information_schema`, `pg_catalog` or
+`duckdb_settings()` is either a hallucination or an attempt to enumerate the
+environment; either way it is not the question the user asked. CTE names are
+allowed, since they resolve within the query itself.
+
 ## Tests
 
 ```bash

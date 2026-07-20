@@ -127,6 +127,48 @@ def ensure_read_only(sql: str) -> str:
 
 DEFAULT_MAX_ROWS = 1000
 
+# Catalog surfaces that are read-only SQL but leak the environment rather than
+# answer a business question: system catalogs and DuckDB's own metadata views.
+_OFF_LIMITS_SCHEMAS = ("information_schema", "pg_catalog", "duckdb_")
+
+_TABLE_REF = re.compile(r"\b(?:from|join)\s+([a-z_][a-z0-9_.\"]*)", re.IGNORECASE)
+
+
+def referenced_tables(sql: str) -> set[str]:
+    """Table names appearing after FROM/JOIN in the normalized query.
+
+    Approximate by design: it reads the shape of the query, not a full parse
+    tree. It runs on normalized text, so names inside literals and comments
+    cannot smuggle anything in.
+    """
+    normalized = _normalize(sql)
+    return {m.group(1).strip('"').lower() for m in _TABLE_REF.finditer(normalized)}
+
+
+def ensure_known_tables(sql: str, allowed: set[str]) -> str:
+    """Reject queries touching anything outside the schema shown to the model.
+
+    The model is given a schema and asked to answer from it; a query reaching
+    for `information_schema` or `duckdb_settings()` is either a hallucination
+    or an attempt to enumerate the environment. Either way it is not the
+    question the user asked. CTE names are allowed: they resolve within the
+    query itself.
+    """
+    cte_names = {
+        m.group(1).lower()
+        for m in re.finditer(r"\b(?:with|,)\s+([a-z_][a-z0-9_]*)\s+as\s*\(", _normalize(sql), re.IGNORECASE)
+    }
+    known = {t.lower() for t in allowed} | cte_names
+
+    for table in referenced_tables(sql):
+        bare = table.split(".")[-1]
+        if table in known or bare in known:
+            continue
+        if table.startswith(_OFF_LIMITS_SCHEMAS) or bare.startswith(_OFF_LIMITS_SCHEMAS):
+            raise UnsafeQueryError(f"Query reads system catalog '{table}'.")
+        raise UnsafeQueryError(f"Unknown table '{table}' (not in the provided schema).")
+    return sql
+
 _TRAILING_LIMIT = re.compile(r"\blimit\s+\d+\s*(offset\s+\d+\s*)?$")
 
 
