@@ -1,6 +1,12 @@
 import pytest
 
-from nl2sql.guard import UnsafeQueryError, enforce_limit, ensure_read_only
+from nl2sql.guard import (
+    UnsafeQueryError,
+    enforce_limit,
+    ensure_known_tables,
+    ensure_read_only,
+    referenced_tables,
+)
 
 
 def test_allows_plain_select():
@@ -149,3 +155,44 @@ def test_appended_limit_survives_a_trailing_comment():
     out = enforce_limit("SELECT 1 -- note", 500)
     # The newline ends the line comment, so the LIMIT is real SQL.
     assert out == "SELECT 1 -- note\nLIMIT 500"
+
+
+# --- ensure_known_tables: the query may only touch the schema it was shown ---
+
+ALLOWED = {"orders", "customers"}
+
+
+def test_finds_tables_after_from_and_join():
+    sql = "SELECT * FROM orders o JOIN customers c ON c.id = o.customer_id"
+    assert referenced_tables(sql) == {"orders", "customers"}
+
+
+def test_allows_queries_within_the_schema():
+    sql = "SELECT * FROM orders JOIN customers ON customers.id = orders.customer_id"
+    assert ensure_known_tables(sql, ALLOWED) == sql
+
+
+def test_allows_cte_names_defined_in_the_query():
+    sql = "WITH recent AS (SELECT * FROM orders) SELECT * FROM recent"
+    assert ensure_known_tables(sql, ALLOWED) == sql
+
+
+def test_rejects_system_catalogs():
+    for sql in (
+        "SELECT * FROM information_schema.tables",
+        "SELECT * FROM pg_catalog.pg_tables",
+        "SELECT * FROM duckdb_settings()",
+    ):
+        with pytest.raises(UnsafeQueryError, match="system catalog"):
+            ensure_known_tables(sql, ALLOWED)
+
+
+def test_rejects_tables_outside_the_schema():
+    with pytest.raises(UnsafeQueryError, match="Unknown table"):
+        ensure_known_tables("SELECT * FROM salaries", ALLOWED)
+
+
+def test_table_name_inside_a_literal_is_not_a_reference():
+    # The lexer runs first, so "from secrets" inside a string is just text.
+    sql = "SELECT 'from secrets' AS note FROM orders"
+    assert ensure_known_tables(sql, ALLOWED) == sql
