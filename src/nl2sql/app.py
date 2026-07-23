@@ -6,10 +6,18 @@ Requires ANTHROPIC_API_KEY in the environment for the LLM step.
 
 import argparse
 
+from nl2sql.audit import OUTCOME_EXECUTED, OUTCOME_REJECTED, record_query
 from nl2sql.db import build_sample_db
-from nl2sql.guard import ensure_known_tables, enforce_limit, ensure_read_only
+from nl2sql.guard import (
+    UnsafeQueryError,
+    ensure_known_tables,
+    enforce_limit,
+    ensure_read_only,
+)
 from nl2sql.llm import generate_sql
 from nl2sql.schema import list_tables, render_schema
+
+AUDIT_PATH = "audit.jsonl"
 
 
 def answer(question: str) -> None:
@@ -18,10 +26,16 @@ def answer(question: str) -> None:
 
     raw_sql = generate_sql(question, schema_text)
     # Three gates, narrowing in turn: is it read-only, does it stay inside the
-    # schema the model was shown, and is the result set bounded.
-    safe_sql = enforce_limit(
-        ensure_known_tables(ensure_read_only(raw_sql), list_tables(conn))
-    )
+    # schema the model was shown, and is the result set bounded. Whatever the
+    # guard decides, the attempt is written to the audit trail.
+    try:
+        safe_sql = enforce_limit(
+            ensure_known_tables(ensure_read_only(raw_sql), list_tables(conn))
+        )
+    except UnsafeQueryError as err:
+        record_query(AUDIT_PATH, question, raw_sql, OUTCOME_REJECTED, str(err))
+        raise
+    record_query(AUDIT_PATH, question, safe_sql, OUTCOME_EXECUTED)
 
     print(f"\nSQL:\n{safe_sql}\n")
     rows = conn.execute(safe_sql).fetchall()

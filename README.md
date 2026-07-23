@@ -90,6 +90,11 @@ shown. A query reaching for `information_schema`, `pg_catalog` or
 environment; either way it is not the question the user asked. CTE names are
 allowed, since they resolve within the query itself.
 
+Every attempt is written to an **audit trail** (`audit.jsonl`, one JSON record
+per line): the question, the SQL the model produced, and whether the guard let
+it run or blocked it and why. When an LLM writes SQL you then execute, a
+blocked query is a security event worth keeping, not just an error to discard.
+
 ## Tests
 
 ```bash

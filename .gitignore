@@ -10,6 +10,9 @@ venv/
 .env
 .env.*
 
+# Runtime audit trail
+audit.jsonl
+
 # OS / editors
 .DS_Store
 Thumbs.db
