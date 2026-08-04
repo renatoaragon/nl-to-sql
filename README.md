@@ -108,6 +108,30 @@ extraction, and schema rendering — **none of it calls the API**, so CI runs
 green without an API key. The Claude call is isolated behind an injectable
 client.
 
+## Design principles
+
+Tools are the most disposable part of data engineering, and a language model is the
+most disposable of all. The model behind this will be a different one within months,
+and the project should not care. What lasts is the architecture around it: the LLM
+proposes, a deterministic and unit-tested guard disposes, and generated code never
+reaches the data on trust. So the interesting part of this repo is not the model
+call, it is the boundary that makes the model safe to use at all.
+
+This is an access layer for a data platform: a way to let a person query curated
+data, the kind produced by
+[dbt-duckdb-analytics](https://github.com/renatoaragon/dbt-duckdb-analytics),
+without writing SQL by hand. The principles it holds to:
+
+- **The boundary is deterministic, never the model.** Whatever the LLM returns, only
+  a single read-only `SELECT` inside the known schema runs. Safety that depends on
+  the model behaving is not safety.
+- **Guard the real attack surface, not the obvious one.** Beyond mutation keywords,
+  the guard normalizes away literals and comments and blocks filesystem table
+  functions, because on DuckDB a read-only query can still read arbitrary files.
+- **A blocked query is a security event.** Every attempt, allowed or rejected, is
+  written to an audit trail. When generated code is executed, what you refused to
+  run is worth keeping.
+
 ## Design notes
 
 - **LLM proposes, code disposes** — the safety boundary is deterministic and
