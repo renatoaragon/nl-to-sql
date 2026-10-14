@@ -2,12 +2,12 @@
 
 ![CI](https://github.com/renatoaragon/nl-to-sql/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
-![Claude](https://img.shields.io/badge/Claude-Anthropic_SDK-a78bfa)
+![LLM](https://img.shields.io/badge/LLM-SQL_generation-a78bfa)
 ![DuckDB](https://img.shields.io/badge/DuckDB-embedded-FFF000)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Ask a database questions in plain English. This tool sends the schema and your
-question to **Claude** (via the official Anthropic SDK), gets back a SQL query,
+question to an **LLM**, gets back a SQL query,
 **guards it so only read-only `SELECT`s can run**, and executes it on a local
 **DuckDB** sample database.
 
@@ -18,14 +18,14 @@ question to **Claude** (via the official Anthropic SDK), gets back a SQL query,
 ## How it works
 
 ```
-question ──▶ render schema ──▶ Claude (NL → SQL) ──▶ safety guard ──▶ DuckDB ──▶ rows
+question ──▶ render schema ──▶ LLM (NL → SQL) ──▶ safety guard ──▶ DuckDB ──▶ rows
                                                           │
                                         rejects INSERT / UPDATE / DELETE / DROP,
                                         stacked statements, and non-SELECT queries
 ```
 
 - `schema.py` — introspects DuckDB into a compact `table(col type, …)` string.
-- `llm.py` — calls Claude with the schema and question; extracts the SQL.
+- `llm.py` — calls the LLM with the schema and question; extracts the SQL.
 - `guard.py` — the hard boundary: single statement, must start with
   `SELECT`/`WITH`, no data-modifying keywords. Raises `UnsafeQueryError` otherwise.
 - `app.py` — wires it together into a CLI.
@@ -34,7 +34,7 @@ question ──▶ render schema ──▶ Claude (NL → SQL) ──▶ safety 
 
 ```bash
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-...        # needed only for the live LLM step
+# set the API key the LLM client in llm.py expects; needed only for the live LLM step
 
 PYTHONPATH=src python -m nl2sql.app "total revenue per category"
 ```
@@ -105,7 +105,7 @@ The suite covers the guard (mutations, stacked statements, CTEs, plus the
 adversarial set: keywords hidden in comments, literals with escaped quotes,
 filesystem table functions, unterminated strings), prompt building and SQL
 extraction, and schema rendering — **none of it calls the API**, so CI runs
-green without an API key. The Claude call is isolated behind an injectable
+green without an API key. The LLM call is isolated behind an injectable
 client.
 
 ## Design principles
@@ -137,7 +137,7 @@ without writing SQL by hand. The principles it holds to:
 - **LLM proposes, code disposes** — the safety boundary is deterministic and
   unit-tested, never delegated to the model.
 - **Injectable client** — `generate_sql(..., client=...)` lets tests and callers
-  swap in a fake; the default uses the real Anthropic SDK.
+  swap in a fake; the default uses the real provider SDK.
 - **Zero external setup** — the sample database is built in-memory, so the repo
   runs and tests out of the box.
 
